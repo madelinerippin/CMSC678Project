@@ -1,6 +1,8 @@
 # EEG Motor Imagery Baseline — BCI Competition IV Dataset 2a
 
-**Notebook:** `Baseline.ipynb`  
+**Notebook:** `Baselines.ipynb`  
+**Environment:** Google Colab (GPU — A100/T4)  
+**Project:** CMSC 678 — Do Modern Deep Learning Architectures Disproportionately Benefit BCI-Inefficient Users?
 
 ---
 
@@ -75,7 +77,7 @@ Results are systematically higher than the published kappa values, likely due to
 
 ## Baseline 2 — EEGNet
 
-**Implementation:** Custom `EEGNetModel` (PyTorch), based on Lawhern et al. (2018) EEGNet-8,2
+**Implementation:** [`amrzhd/EEGNet`](https://github.com/amrzhd/EEGNet) (PyTorch), based on Lawhern et al. (2018) EEGNet-8,2 with preprocessing modifications (see Dependencies)
 
 | Setting | Value |
 |---|---|
@@ -98,7 +100,7 @@ The `subject_to_tensors()` function handles loading, resampling, per-channel sta
 
 ### EEGNet Results
 
-No single published per-subject table exists for this exact configuration. Published EEGNet mean accuracy on BCI IV-2a ranges from approximately 68–75% depending on implementation. Our result falls within this range.
+No single published per-subject table exists for this exact configuration. Published EEGNet mean accuracy on BCI IV-2a ranges from approximately 68–75% depending on implementation. Our result of 71.3% falls within this range. The slight upward offset from the lower end of that range is consistent with the per-channel `StandardScaler` normalization present in the `amrzhd/EEGNet` implementation but absent in most published baselines.
 
 | Subject | Accuracy |
 |---|---|
@@ -130,6 +132,7 @@ This grouping is consistent with per-subject rankings reported across multiple p
 
 ## Dependencies
 
+Standard packages (install via pip):
 ```
 numpy
 scipy
@@ -137,9 +140,13 @@ pandas
 matplotlib
 torch
 sklearn
-FBCSP_Multiclass   # from jesus-333/FBCSP-Python
-EEGNet             # custom EEGNetModel (EEGNet.py must be in working directory)
 ```
+
+External `.py` files that must be present in the working directory:
+
+**`FBCSP_Multiclass.py`** — from [`jesus-333/FBCSP-Python`](https://github.com/jesus-333/FBCSP-Python). Copy `FBCSP_Multiclass.py` and its dependency `FBCSP_V4.py` from that repo. No modifications were made to either file.
+
+**`EEGNet.py`** — from [`amrzhd/EEGNet`](https://github.com/amrzhd/EEGNet). This is **not** a straight copy of the original Lawhern et al. implementation. The git log for that repo shows a series of preprocessing fixes applied after the initial commit — notably `"Fixing the tmin,tmax"`, `"Fixing the normalization"`, and `"performance improved"` — meaning the epoch windowing and normalization behavior differ from the vanilla EEGNet paper. This is the most likely explanation for why our results land slightly above the 68–72% range commonly reported for EEGNet on BCI IV-2a: the per-channel `StandardScaler` normalization added in this repo is not present in most other published baselines. No additional modifications were made beyond what is in that repo.
 
 ---
 
