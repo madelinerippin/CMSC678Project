@@ -1,6 +1,6 @@
 # EEG Motor Imagery Baseline — BCI Competition IV Dataset 2a
 
-**Notebook:** Baseline.ipynb`  
+**Notebook:** `Baseline.ipynb`  
 
 ---
 
