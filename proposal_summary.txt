@@ -1,3 +1,15 @@
+WHOS DOING WHAT:
+Chris:
+• a one paragraph description and motivation of the problem,
+• a one-two paragraph description of the questions you intend to examine (these can be
+research, theoretical, experimental, etc.),
+• a two-three paragraph description of your proposed solution,
+
+Maddie:
+• a one-two paragraph description of how your solution fits in with what has been previously done on the problem (or related problems), citing prior work,
+• a one-two paragraph description of any blocks you’ve experienced (or anticipate experiencing).
+• a one-two paragraph initial discussion of the ethical components.
+
 PROPOSAL SUMMARY — CMSC 678 Project
 Do Modern Deep Learning Architectures Disproportionately Benefit BCI-Inefficient Users?
 Chris Dollo & Madeline Rippin
