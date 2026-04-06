@@ -1,0 +1,39 @@
+A one paragraph description and motivation of the problem, 
+
+EEG classification is a core task in Brain-computer interface (BCI) research, with critical applications to prosthetics, post-stroke patient rehabilitation, and assistive communication for individuals with motor disabilities. 
+A persistent and clinically significant obstacle is BCI inefficiency: an estimated 15–30% of
+users are unable to produce the desired sensorimotor rhythm (SMR) patterns robustly enough for a classifier to exceed 70% accuracy, even after extensive training. 
+This is not merely an accuracy problem, but an equity problem. The patients who most urgently need BCI technology (stroke survivors, upper-limb amputees, etc. ) are often those who are harder to classify, whether due to neurological disruption, limited motor cortex plasticity, or simply natural inter-individual variability in EEG signal quality.
+Recent deep learning models have dramatically improved average accuracy on benchmark datasets like BCI Competition IV Dataset 2a [ ], but nearly all published work reports mean accuracy across subjects without examining whether these gains are distributed equitably. Whether modern architectures specifically help the users who need BCIs most remains an open and practically important question.
+
+
+
+
+A one-two paragraph description of the questions you intend to examine (these can be research, theoretical, experimental, etc.), 
+
+For this paper we intend to adress 2 questions 
+Does a model like EEGNet improve classification acccuracy for BCI-inefficient subjects more than BCI-efficient subjects relatively to the FBCSP baseline?
+To what extent can data augmentation be used to close the gap betweenhigh performing and low-performing subjects across different models?
+Together, these questions address both dimension of biosignal modelisation. The data dimension (with data augmentation techniques) and the architecture dimension (with different model families) and produce a comprehensive empirical picture of BCI inefficiency across the model hierarchy.
+
+
+A two-three paragraph description of your proposed solution
+
+To tackle this prooblem we’ll implement and compare three models on BCI Competition IV dataset 2a.
+Traditional Baseline: FBCSP with LDA, using the one-vs-rest multiclass extension [? ]. This replicates the published competition-
+winning approach
+CNN baseline: EEGNet as configured per the original paper (128 Hz resampling,
+temporal kernel length 64, session 1 train/session 2 test protocol). 
+Novel model: A Mamba-based SSM, specifically MI-Mamba [? ], a hybrid CNN-Mamba architecture that processes local spatial features via convolution before applying Mamba’s selective state-space mechanism for global temporal modeling. 
+
+All of our models will be evaluatedd using the same preprocessing steps of our data and the train/test splitting pattern for a fair comparion.
+We defined the subject performance groups via a median split of per-subject FBCSP kappa across the 9 subjects. This gives us five high performers and four low performers, consistent with known per-subject rankings in the literature. 
+The core analysis will then computes Δacc (the accuracy difference between each deep learning model and FBCSP) per subject, and compares the mean Δacc between the two groups using a Mann-Whitney U test. To better understand why low performers struggle we will also conducte a spectral analysis of low vs high performers
+For the augmentation experiment, we apply two strategies to session 1 training data only: 
+1- Gaussian noise injection producing 3 augmented copies per trial by adding zero-mean Gaussian noise scaled to 5–10% of each trial’s standard deviation, yielding 288 × 3 + 288 = 1152 training trials per subject; and 
+2- Sliding window segmentation with a 2-second window and 50% overlap, generating approximately 3–4 windows per 4-second trial. 
+
+We train all of our model under the original and improved/augmented conditions and repeat the BCI illiteracy group analysis and then evaluate wether the augmentations steps improves the accuracy for low-performing subjects
+
+
+
