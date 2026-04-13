@@ -156,3 +156,12 @@ External `.py` files that must be present in the working directory:
 - An earlier version of `subject_to_tensors()` without per-channel standardization is preserved in a commented-out cell for reference.
 - An earlier commented-out version of `train_subject()` used `time_points=1000` (250 Hz, no resampling); the active version uses `time_points=512` (128 Hz) to match the original EEGNet paper configuration.
 - All 288 trials per subject are used — no artifact rejection is applied.
+
+---
+## Research Papers
+- [`Classification of motor imagery EEG using deep learning increases performance in inefficient BCI users`](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0268880)
+- [`Bridging the BCI illiteracy gap: a subject-to-subject semantic style transfer for EEG-based motor imagery classification`](https://www.frontiersin.org/journals/human-neuroscience/articles/10.3389/fnhum.2023.1194751/full#h1)
+- [`Filter Bank Common Spatial Pattern Algorithm on BCI Competition IV Datasets 2a and 2b`](https://pmc.ncbi.nlm.nih.gov/articles/PMC3314883/)
+- [`BCI Competition 2008 – Graz data set A`](https://lampz.tugraz.at/~bci/database/001-2014/description.pdf)
+- [`EEGNet: a compact convolutional neural network for EEG-based brain–computer interfaces`](https://arxiv.org/abs/1611.08024)
+
