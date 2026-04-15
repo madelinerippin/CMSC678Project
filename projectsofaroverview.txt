@@ -1,0 +1,139 @@
+## Dataset: BCI Competition IV Dataset 2a
+
+- 9 subjects (A01-A09), 4-class motor imagery: left hand (769), right hand (770), foot (771), tongue (772)
+- Raw EEG: 25 channels total -- 22 EEG used, 3 EOG always dropped
+- 250 Hz sampling rate, ~576k samples per subject session
+- 288 trials per subject for training (A0xT.npz), 288 trials for evaluation (A0xE.npz + true labels from A0xE.mat)
+- Within-subject paradigm: a completely independent model is trained from scratch for each of the 9 subjects using only that subject's own data. No subject ever sees another subject's data. The result is 9 separate train/test runs, and the reported per-subject accuracies each come from their own isolated model.
+- No artifacts removed; all 288 trials kept for every method
+
+
+## Output
+
+All methods output 4 classes (left hand, right hand, foot, tongue -- labels 0-3). At the data loading stage, make_trials_dict groups trials by class to feed FBCSP's one-vs-rest structure. For EEGNet/Mamba/ATCNet the class groups are concatenated back into a flat array with integer labels before training, and the final layer is always Linear(-> 4) with CrossEntropyLoss.
+
+
+## Trial Extraction (shared across EEGNet, Mamba, ATCNet)
+
+The make_trials_dict function reads event positions (epos) and event types (etyp) from the NPZ. For train trials it slices a 4-second window starting at cue onset using win = np.arange(0, 4 * 250) = 1000 samples at 250 Hz, producing shape (N_trials, 22, 1000).
+
+For the eval set it uses event code 783 (cue-only marker used in the eval session) to find trial start positions, extracting the same 1000-sample window. True labels come from classlabel in the .mat file (values 1-4, shifted to 0-3 for PyTorch).
+
+
+## Preprocessing
+
+Preprocessing is model-appropriate rather than identical -- each model operates under the conditions it was designed for rather than being artificially constrained to a common denominator.
+
+FBCSP uses its own internal filtering (see below) and operates at the native 250 Hz / 1000-sample resolution, consistent with Ang et al. (2012).
+
+EEGNet and ATCNet share the following pipeline (defined in subject_to_tensors / subject_to_arrays), following standard practice for CNN-based EEG decoders per Lawhern et al. and the braindecode conventions:
+
+1. Resample 250 Hz -> 128 Hz via resample_poly(up=64, down=125, axis=2) -- reduces time dimension 1000 -> 512 samples
+2. Per-channel z-score standardization: StandardScaler fitted on each of the 22 training channels independently, same scaler applied to eval (no data leakage)
+3. Add channel dimension: X[:, np.newaxis] -> final tensor shape (N, 1, 22, 512)
+
+Mamba uses the same pipeline as EEGNet/ATCNet -- same resampling, standardization, and input shape.
+
+
+## Method 1: FBCSP
+
+No resampling. Uses raw 250 Hz, 1000-sample trials directly.
+
+Input shape: dict of class arrays -> {left: (72, 22, 1000), right: ..., feet: ..., tongue: ...}
+
+Pipeline:
+- Filter bank: 9 Butterworth bandpass bands (order 3, zero-phase filtfilt) from linspace(4, 40, 10): [4-8], [8-12], [12-16], [16-20], [20-24], [24-28], [28-32], [32-36], [36-40] Hz
+- CSP: 2 components -> selects first 2 + last 2 eigenvectors = 4 spatial filters per band
+- Feature: log-variance of the 4 filtered-and-projected components -> 36 features per trial (4 x 9 bands)
+- Feature selection: MIBIF, top 4 per band
+- Classifier: LDA, one-vs-rest across 4 classes
+
+Output: class prediction (0-3)
+
+Results (no augmentation):
+Subj  | 01    | 02    | 03    | 04    | 05    | 06    | 07    | 08    | 09    | Mean
+Acc   | 0.677 | 0.542 | 0.806 | 0.587 | 0.507 | 0.424 | 0.771 | 0.719 | 0.677 | 0.634
+
+
+## Method 2: EEGNet
+
+Architecture: EEGNet-8,2 (Lawhern et al. 2018)
+
+Input: (batch, 1, 22, 512)
+
+Stage             | Operation                                                              | Output Shape
+Temporal conv     | Conv2d(1, 16, kernel=(1,64)), BatchNorm                                | (batch, 16, 22, 512)
+Spatial/depthwise | DepthwiseConv2d(kernel=(22,1), D=2), BatchNorm, ELU, AvgPool(1x8), Dropout(0.5) | (batch, 32, 1, 64)
+Separable conv    | SeparableConv2d(32, 32, kernel=(1,16)), BatchNorm, ELU, AvgPool(1x16), Dropout(0.5) | (batch, 32, 1, 4)
+Flatten -> FC     | Linear(128, 4)                                                         | (batch, 4)
+
+Max-norm constraints: 1.0 on depthwise layer, 0.25 on FC.
+
+Training: Adam lr=0.001, 300 epochs, batch=32, CrossEntropyLoss, no scheduler, no early stopping.
+
+Results:
+Subj   | 01    | 02    | 03    | 04    | 05    | 06    | 07    | 08    | 09    | Mean
+No aug | 0.795 | 0.583 | 0.844 | 0.629 | 0.611 | 0.559 | 0.743 | 0.819 | 0.816 | 0.711
+Aug    | 0.826 | 0.566 | 0.899 | 0.618 | 0.608 | 0.507 | 0.833 | 0.861 | 0.833 | 0.728
+
+
+## Method 3: Mamba (3rd implementation)
+
+Input: (batch, 1, 22, 512)
+
+Stage        | Operation                                           | Output Shape
+Spatial conv | Conv2d(1, 32, kernel=(22,1)), BatchNorm2d, ReLU     | (batch, 32, 1, 512)
+Reshape      | squeeze(2) -> permute(0,2,1)                        | (batch, 512, 32)
+Temporal SSM | Mamba(d_model=32, d_state=16, d_conv=4, expand=2)  | (batch, 512, 32)
+Pooling      | Dropout(0.5) + mean over time dim                   | (batch, 32)
+Classifier   | Linear(32, 4)                                       | (batch, 4)
+
+The Conv2d spatial step collapses the 22 electrodes into a 32-dim learned spatial feature. Mamba then models temporal dynamics across 512 time steps. Mean pooling aggregates the full sequence.
+
+Training: Adam lr=0.001, 500 epochs (longer than EEGNet/ATCNet), batch=32, CrossEntropyLoss.
+
+Results:
+Subj   | 01    | 02    | 03    | 04    | 05    | 06    | 07    | 08    | 09    | Mean
+No aug | 0.604 | 0.354 | 0.667 | 0.444 | 0.278 | 0.299 | 0.490 | 0.681 | 0.635 | 0.495
+Aug    | 0.611 | 0.385 | 0.649 | 0.361 | 0.278 | 0.368 | 0.531 | 0.708 | 0.569 | 0.496
+
+Mamba is the only method that never beats FBCSP on any subject. Augmentation barely moves the needle (+0.001 mean).
+
+
+## Method 4: ATCNet
+
+From the braindecode library -- Attention Temporal Convolutional Network (Altaheri et al. 2022).
+
+Input: (batch, 22, 512) -- the wrapper squeezes away the added channel dim before passing to ATCNet. (x = x.squeeze(1))
+
+ATCNet combines EEGNet-style spatial-temporal convolutions with a multi-head self-attention sliding window mechanism. The braindecode implementation is used directly with n_chans=22, n_outputs=4, n_times=512, sfreq=128.
+
+Training: Adam lr=0.001, 300 epochs, batch=32, CrossEntropyLoss -- identical to EEGNet.
+
+Results:
+Subj   | 01    | 02    | 03    | 04    | 05    | 06    | 07    | 08    | 09    | Mean
+No aug | 0.691 | 0.531 | 0.837 | 0.611 | 0.566 | 0.545 | 0.667 | 0.799 | 0.708 | 0.662
+Aug    | 0.767 | 0.559 | 0.899 | 0.545 | 0.608 | 0.504 | 0.903 | 0.823 | 0.688 | 0.700
+
+Notable: Subject 07's ATCNet augmented jump (0.667 -> 0.903, +0.236) is the largest single improvement across all experiments. Subject 03 is a convergence point -- both EEGNet augmented and ATCNet augmented land at exactly 0.899, suggesting that may be close to the performance ceiling for that subject's signal quality.
+
+
+## Data Augmentation
+
+Applied to training set only (eval set is never augmented). Two techniques stacked:
+
+1. Gaussian noise injection -- 3 noisy copies per trial; noise = 0.1 x per-channel std x N(0,1)
+2. Sliding window -- 3 windows (2s = 256 samples at 128 Hz, 50% overlap at positions 0, 128, 256); each window is zero-padded back to 512 to maintain shape
+
+Result: 288 original + 3 noise copies + 3 windows = 288 x 7 = 2016 training trials
+
+
+## Statistical Analysis
+
+Delta-vs-FBCSP was computed per subject, then high performers (subjects 01, 03, 07, 08, 09) were compared against low performers (02, 04, 05, 06) using Mann-Whitney U. Note: with n=4 vs n=5, p<0.05 is mathematically impossible, so the comparisons are descriptive rather than inferential.
+
+Key findings:
+
+- Without augmentation: EEGNet and ATCNet both improve low performers slightly more than high performers over FBCSP -- consistent with the hypothesis that deep learning closes the gap for BCI-inefficient users
+- With augmentation: The pattern reverses -- high performers benefit more; augmentation does not differentially help BCI-inefficient subjects
+- Mamba: Both groups are negative vs FBCSP in both conditions. Low performers are hurt more -- Mamba actively widens the performance gap relative to the traditional baseline rather than closing it
