@@ -8,23 +8,22 @@ from sklearn.preprocessing import StandardScaler
 from scipy.signal import resample_poly
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def load_data():
+def load_data(data_dir=None):
+    if data_dir is None:
+        data_dir = os.environ.get('BCI_DATA_DIR', '/content/drive/MyDrive/BCI')
+
     subjectData = {}
     subjectDataEVAL = {}
 
-    import os
     if not os.path.exists('/content/drive/MyDrive'):
         from google.colab import drive
         drive.mount('/content/drive')
 
     #filling the subject data and evaluation data
     for i in range(1,10):
-        data_path = os.path.join('/content/drive/MyDrive/BCI','A{:02d}T.npz'.format(i))
         subject = 'subject{:02d}'.format(i)
-        subjectData[subject] = np.load(data_path)
-        data_path = os.path.join('/content/drive/MyDrive/BCI','A{:02d}E.npz'.format(i))
-        subject = 'subject{:02d}'.format(i)
-        subjectDataEVAL[subject] = np.load(data_path)
+        subjectData[subject]     = np.load(os.path.join(data_dir, 'A{:02d}T.npz'.format(i)))
+        subjectDataEVAL[subject] = np.load(os.path.join(data_dir, 'A{:02d}E.npz'.format(i)))
 
     return subjectData, subjectDataEVAL
 

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 from scipy.io import loadmat
@@ -11,8 +12,8 @@ from sr_augmentation import augment_trials_SR
 from EEGNetBYOL import pretrain_byol_loso, finetune_byol_subject
 from utils import load_data, make_trials_dict, subject_to_tensors, train_subject, subject_to_arrays, arrays_to_tensors
 
-subjectData, subjectDataEVAL = load_data()
-DATA_DIR = '/content'
+DATA_DIR = os.environ.get('BCI_DATA_DIR', '/content/drive/MyDrive/BCI')
+subjectData, subjectDataEVAL = load_data(data_dir=DATA_DIR)
 
 def get_aug():
     X_train_augs = []
@@ -52,7 +53,7 @@ def FBCSP_results():
         #perform FBCSP and get prediction
         cue_pos = epos[etyp == 783]
         X_test = np.stack([s[pos + win, :].T for pos in cue_pos])
-        mat = loadmat(f'/content/A{idx:02d}E.mat')
+        mat = loadmat(f'{DATA_DIR}/A{idx:02d}E.mat')
         y_test = mat['classlabel'].flatten()
         clf = FBCSP_Multiclass(train_dict, 250, print_var=False)
         y_pred = clf.evaluateTrial(X_test)
