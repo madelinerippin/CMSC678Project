@@ -14,16 +14,15 @@ def eeg_augment(x, fs=128):
     def augment_single(x):
         aug = x.copy()
 
-        # 1. Mild Gaussian noise (3% instead of 5%)
+        #mild Gaussian noise at 3% 
         aug = aug + np.random.randn(*aug.shape) * aug.std() * 0.03
 
-        # 2. Random temporal masking — zero out a short window
-        #    (gentler than crop+resize which distorts timing)
+        #random temporal masking which zeros out a short window
         mask_len = np.random.randint(25, 75)  # 0.2–0.6s at 128Hz
         mask_start = np.random.randint(0, 512 - mask_len)
         aug[:, mask_start:mask_start + mask_len] = 0
 
-        # 3. Amplitude scaling — multiply by random factor near 1
+        #amplitude scaling
         scale = np.random.uniform(0.8, 1.2)
         aug = aug * scale
 
@@ -34,7 +33,6 @@ def eeg_augment(x, fs=128):
 
 class EEGNetBYOL(nn.Module):
     """
-    BYOL for EEG — no negative pairs needed.
     Online network tries to predict target network's representations.
     """
     def __init__(self, chans=22, time_points=512, temp_kernel=64,
@@ -42,7 +40,7 @@ class EEGNetBYOL(nn.Module):
         super().__init__()
         from EEGNet import EEGNetModel
 
-        # Online network
+        #online network
         self.online_backbone = EEGNetModel(chans=chans, classes=4,time_points=time_points, temp_kernel=temp_kernel)
         self.online_backbone.fc = nn.Identity()
         feature_dim = 128  #double check that this is correct
@@ -60,11 +58,11 @@ class EEGNetBYOL(nn.Module):
             nn.Linear(pred_dim, proj_dim)
         )
 
-        # Target network — copy of online, not trained by gradient
+        #target network, which is a copy of online not trained by gradient
         self.target_backbone = copy.deepcopy(self.online_backbone)
         self.target_projector = copy.deepcopy(self.online_projector)
 
-        # Target params don't get gradients
+        #no gradients for the target params
         for p in self.target_backbone.parameters():
             p.requires_grad = False
         for p in self.target_projector.parameters():
@@ -113,7 +111,7 @@ def pretrain_byol_loso(target_idx, subjectData, subjectDataEVAL, DATA_DIR,
         lr=lr, weight_decay=1e-4
     )
 
-    # Collect trials from other 8 subjects
+    #getting trials from other 8 subjects
     all_trials = []
     for idx in range(1, 10):
         if idx == target_idx:
@@ -126,7 +124,6 @@ def pretrain_byol_loso(target_idx, subjectData, subjectDataEVAL, DATA_DIR,
         all_trials.append(X_tr)
 
     all_trials = np.concatenate(all_trials, axis=0)
-    #print(f'BYOL pretraining on {len(all_trials)} trials (excluding subject {target_idx:02d})')
 
     for epoch in range(epochs):
         idx_perm = np.random.permutation(len(all_trials))
@@ -136,7 +133,7 @@ def pretrain_byol_loso(target_idx, subjectData, subjectDataEVAL, DATA_DIR,
         for start in range(0, len(all_trials), batch_size):
             batch = all_trials[idx_perm[start:start + batch_size]]
 
-            # Two augmented views
+            #get 2 augmented views
             v1 = np.stack([eeg_augment(t)[0] for t in batch])
             v2 = np.stack([eeg_augment(t)[1] for t in batch])
             v1 = torch.tensor(v1[:, np.newaxis], dtype=torch.float32).to(device)
@@ -144,7 +141,7 @@ def pretrain_byol_loso(target_idx, subjectData, subjectDataEVAL, DATA_DIR,
 
             optimizer.zero_grad()
 
-            # Online predicts target, and vice versa (symmetric)
+            #online predicts target, and vice versa
             loss = (byol_loss(model.online_forward(v1),
                                model.target_forward(v2)) +
                     byol_loss(model.online_forward(v2),
