@@ -3,7 +3,9 @@ import numpy as np
 import torch
 from scipy.io import loadmat
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 from FBCSP_Multiclass import FBCSP_Multiclass
 from EEGNet import EEGNetModel
 from Mamba import MI_Mamba
@@ -12,14 +14,11 @@ from sr_augmentation import augment_trials_SR
 from EEGNetBYOL import pretrain_byol_loso, finetune_byol_subject
 from utils import load_data, make_trials_dict, subject_to_tensors, train_subject, subject_to_arrays, arrays_to_tensors
 
-DATA_DIR = os.environ.get('BCI_DATA_DIR', '/content/drive/MyDrive/BCI')
+DATA_DIR = os.environ.get('BCI_DATA_DIR', '/content/drive/MyDrive/BCI/data/mat_files')
 subjectData, subjectDataEVAL = load_data(data_dir=DATA_DIR)
 
 def get_aug():
-    X_train_augs = []
-    y_train_augs = []
-    X_evals = []
-    y_evals = []
+    X_train_augs, y_train_augs, X_evals, y_evals = [], [], [], []
     for idx in range(1, 10):
         X_tr, y_tr, X_ev, y_ev = subject_to_arrays(
             subjectData[f'subject{idx:02d}'],
@@ -32,50 +31,44 @@ def get_aug():
         y_train_augs.append(y_train_aug)
         X_evals.append(X_eval)
         y_evals.append(y_eval)
-
     return X_train_augs, y_train_augs, X_evals, y_evals
 
+
 def FBCSP_results():
-    accuracies = []
-    all_preds = []
-    all_true = []
+    accuracies, per_subject_cms, all_preds, all_true = [], [], [], []
 
     for idx in range(1, 10):
         sub = f'subject{idx:02d}'
         train_dict = make_trials_dict(subjectData[sub])
 
-        #get subject data
         s = subjectDataEVAL[sub]['s'][:, :22].astype(np.float64)
         epos = subjectDataEVAL[sub]['epos'].flatten().astype(int)
         etyp = subjectDataEVAL[sub]['etyp'].flatten().astype(int)
         win = np.arange(0, 4 * 250)
 
-        #perform FBCSP and get prediction
-        cue_pos = epos[etyp == 783]
-        X_test = np.stack([s[pos + win, :].T for pos in cue_pos])
+        X_test = np.stack([s[pos + win, :].T for pos in epos[etyp == 783]])
         mat = loadmat(f'{DATA_DIR}/A{idx:02d}E.mat')
         y_test = mat['classlabel'].flatten()
         clf = FBCSP_Multiclass(train_dict, 250, print_var=False)
         y_pred = clf.evaluateTrial(X_test)
 
-        #compute accuracy and change classes from 1-4 to 0-3 like others
+        y_pred_0 = y_pred - 1
+        y_test_0 = y_test - 1
         acc = np.mean(y_pred == y_test)
         accuracies.append(acc)
-        all_preds.extend(y_pred - 1)
-        all_true.extend(y_test - 1)
+        per_subject_cms.append(sk_confusion_matrix(y_test_0, y_pred_0, labels=[0, 1, 2, 3]))
+        all_preds.extend(y_pred_0)
+        all_true.extend(y_test_0)
 
     aggregate_cm = sk_confusion_matrix(all_true, all_preds, labels=[0, 1, 2, 3])
-    return accuracies, aggregate_cm
+    return accuracies, per_subject_cms, aggregate_cm
 
 
 ##############################################################################################
 
 def EEG_results(aug_bool):
-    accuracies = []
-    all_preds = []
-    all_true = []
+    accuracies, per_subject_cms, all_preds, all_true = [], [], [], []
 
-    #if augmentation is true use augmented data
     if aug_bool:
         X_train_augs, y_train_augs, X_evals, y_evals = get_aug()
 
@@ -93,20 +86,18 @@ def EEG_results(aug_bool):
             )
             acc, y_pred, y_true = train_subject(X_train, y_train, X_eval, y_eval, model, return_preds=True)
         accuracies.append(acc)
+        per_subject_cms.append(sk_confusion_matrix(y_true, y_pred, labels=[0, 1, 2, 3]))
         all_preds.extend(y_pred)
         all_true.extend(y_true)
 
     aggregate_cm = sk_confusion_matrix(all_true, all_preds, labels=[0, 1, 2, 3])
-    return accuracies, aggregate_cm
+    return accuracies, per_subject_cms, aggregate_cm
 
 ##############################################################################################
 
 def Mamba_results(aug_bool):
-    accuracies = []
-    all_preds = []
-    all_true = []
+    accuracies, per_subject_cms, all_preds, all_true = [], [], [], []
 
-    #if augmentation is true use augmented data
     if aug_bool:
         X_train_augs, y_train_augs, X_evals, y_evals = get_aug()
 
@@ -124,20 +115,18 @@ def Mamba_results(aug_bool):
             )
             acc, y_pred, y_true = train_subject(X_train, y_train, X_eval, y_eval, model, epochs=500, return_preds=True)
         accuracies.append(acc)
+        per_subject_cms.append(sk_confusion_matrix(y_true, y_pred, labels=[0, 1, 2, 3]))
         all_preds.extend(y_pred)
         all_true.extend(y_true)
 
     aggregate_cm = sk_confusion_matrix(all_true, all_preds, labels=[0, 1, 2, 3])
-    return accuracies, aggregate_cm
+    return accuracies, per_subject_cms, aggregate_cm
 
 ##############################################################################################
 
 def ATCNet_results(aug_bool):
-    accuracies = []
-    all_preds = []
-    all_true = []
+    accuracies, per_subject_cms, all_preds, all_true = [], [], [], []
 
-    #if augmentation is true use augmented data
     if aug_bool:
         X_train_augs, y_train_augs, X_evals, y_evals = get_aug()
 
@@ -155,18 +144,17 @@ def ATCNet_results(aug_bool):
             )
             acc, y_pred, y_true = train_subject(X_train, y_train, X_eval, y_eval, model, return_preds=True)
         accuracies.append(acc)
+        per_subject_cms.append(sk_confusion_matrix(y_true, y_pred, labels=[0, 1, 2, 3]))
         all_preds.extend(y_pred)
         all_true.extend(y_true)
 
     aggregate_cm = sk_confusion_matrix(all_true, all_preds, labels=[0, 1, 2, 3])
-    return accuracies, aggregate_cm
+    return accuracies, per_subject_cms, aggregate_cm
 
 ##############################################################################################
 
 def SSL_results(aug_bool):
-    ssl_results = []
-    all_preds = []
-    all_true = []
+    ssl_results, per_subject_cms, all_preds, all_true = [], [], [], []
 
     for idx in range(1, 10):
         byol_model = pretrain_byol_loso(idx, subjectData, subjectDataEVAL, DATA_DIR, epochs=300, batch_size=64)
@@ -178,12 +166,12 @@ def SSL_results(aug_bool):
         )
         _, _, X_eval, y_eval = arrays_to_tensors(X_tr, y_tr, X_ev, y_ev)
 
-        #get metrics after finetuning on target subject
         acc, y_pred, y_true = finetune_byol_subject(
             byol_model, X_tr, y_tr, X_eval, y_eval, aug_bool, return_preds=True)
         ssl_results.append(acc)
+        per_subject_cms.append(sk_confusion_matrix(y_true, y_pred, labels=[0, 1, 2, 3]))
         all_preds.extend(y_pred)
         all_true.extend(y_true)
 
     aggregate_cm = sk_confusion_matrix(all_true, all_preds, labels=[0, 1, 2, 3])
-    return ssl_results, aggregate_cm
+    return ssl_results, per_subject_cms, aggregate_cm

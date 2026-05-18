@@ -12,8 +12,8 @@ class MI_Mamba(nn.Module):
         self.fc = nn.Linear(d_model, n_classes)
 
     def forward(self, x):
-        x = F.relu(self.bn(self.spatial_conv(x))) #start with (batch, 32, 1, 512)
-        x = x.squeeze(2).permute(0, 2, 1)
-        x = self.mamba(x)                
-        x = self.dropout(x.mean(dim=1))        
-        return self.fc(x) #final return is (batch, 4)
+        x = F.relu(self.bn(self.spatial_conv(x)))  # (batch, 32, 1, 512)
+        x = x.squeeze(2).permute(0, 2, 1)          # (batch, 512, 32)
+        x = self.mamba(x)                           # (batch, 512, 32)
+        x = self.dropout(x.mean(dim=1))             # (batch, 32)
+        return self.fc(x)                           # (batch, 4)

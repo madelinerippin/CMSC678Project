@@ -8,14 +8,14 @@ from sr_augmentation import augment_trials_SR
 from utils import subject_to_arrays
 
 CLASS_NAMES = ['Left', 'Right', 'Feet', 'Tongue']
-high_subjects = [1, 3, 7, 8, 9]
-low_subjects  = [2, 4, 5, 6]
 
-#creates the 4x4 confusion matrix per model
+
 def plot_confusion_matrix(cm, title, save_path=None):
+    """Plot a single (4, 4) confusion matrix as a labelled heatmap."""
     fig, ax = plt.subplots(figsize=(5, 4))
     im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
     plt.colorbar(im, ax=ax)
+
     ax.set_xticks(range(4))
     ax.set_yticks(range(4))
     ax.set_xticklabels(CLASS_NAMES, rotation=45, ha='right')
@@ -35,8 +35,14 @@ def plot_confusion_matrix(cm, title, save_path=None):
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.show()
 
-#puts the single confusion matrices together side by side
+
 def plot_all_confusion_matrices(cms_dict, aug_bool=False):
+    """
+    Plot aggregate confusion matrices for multiple models side by side.
+
+    cms_dict: {'FBCSP': cm, 'EEGNet': cm, 'Mamba': cm, 'ATCNet': cm}
+              where each cm is the (4, 4) aggregate array from confusion_matrices()
+    """
     n = len(cms_dict)
     fig, axes = plt.subplots(1, n, figsize=(5 * n, 4))
     suffix = ' (+aug)' if aug_bool else ''
@@ -64,30 +70,77 @@ def plot_all_confusion_matrices(cms_dict, aug_bool=False):
     plt.savefig(f'/content/confusion_matrices{suffix_str}.png', dpi=150, bbox_inches='tight')
     plt.show()
 
-#visually verify the difference between augmented and non-augmented signals
-#specifically using channel 8 (C3/motor cortex) which shows ERD patterns
+
+HIGH_SUBJECTS_IDX = [0, 2, 6, 7, 8]  # 0-indexed positions for S01,S03,S07,S08,S09
+LOW_SUBJECTS_IDX  = [1, 3, 4, 5]    # 0-indexed positions for S02,S04,S05,S06
+
+
+def plot_stratified_confusion_matrices(cms_dict, aug_bool=False):
+    """
+    Plot confusion matrices split into high-performer group and low-performer group.
+    cms_dict: {model_name: per_subject_cms} where per_subject_cms is a list of 9 (4,4) arrays.
+    """
+    n = len(cms_dict)
+    fig, axes = plt.subplots(2, n, figsize=(5 * n, 8))
+    suffix = ' (+aug)' if aug_bool else ''
+    fig.suptitle(f'Stratified Confusion Matrices{suffix}', fontsize=13)
+
+    for col, (name, per_subject_cms) in enumerate(cms_dict.items()):
+        high_cm = sum(per_subject_cms[i] for i in HIGH_SUBJECTS_IDX)
+        low_cm  = sum(per_subject_cms[i] for i in LOW_SUBJECTS_IDX)
+
+        for row, (cm, group) in enumerate([(high_cm, 'High'), (low_cm, 'Low')]):
+            ax = axes[row, col] if n > 1 else axes[row]
+            im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
+            plt.colorbar(im, ax=ax)
+            ax.set_xticks(range(4))
+            ax.set_yticks(range(4))
+            ax.set_xticklabels(CLASS_NAMES, rotation=45, ha='right')
+            ax.set_yticklabels(CLASS_NAMES)
+            ax.set_xlabel('Predicted')
+            ax.set_ylabel('True')
+            ax.set_title(f'{name} — {group} Performers')
+            thresh = cm.max() / 2
+            for i in range(4):
+                for j in range(4):
+                    ax.text(j, i, str(cm[i, j]), ha='center', va='center',
+                            color='white' if cm[i, j] > thresh else 'black')
+
+    plt.tight_layout()
+    suffix_str = '_aug' if aug_bool else ''
+    plt.savefig(f'/content/confusion_matrices_stratified{suffix_str}.png', dpi=150, bbox_inches='tight')
+    plt.show()
+
+
 def plot_augmentation_comparison(X_original, X_augmented, y, subject_id,
                                   n_classes=4, channel=8):
-
+    """
+    Plot original vs augmented trial for each class.
+    channel=8 is C3 (motor cortex), good for showing ERD patterns.
+    """
     class_names = ['Left Hand', 'Right Hand', 'Feet', 'Tongue']
     fig, axes = plt.subplots(n_classes, 2, figsize=(14, 10))
     fig.suptitle(f'Subject {subject_id:02d} — Original vs S&R Augmented Trial\n'
                  f'Channel C3 (ch {channel})', fontsize=13)
 
-    t = np.linspace(0, 4, 512) #4 seconds at 128 Hz
+    t = np.linspace(0, 4, 512)  # 4 seconds at 128 Hz
 
     for cls in range(n_classes):
+        # Pick first trial of this class
         orig_idx = np.where(y[:len(X_original)] == cls)[0][0]
         aug_idx  = np.where(y[len(X_original):len(X_original)*2] == cls)[0][0]
+
         orig_signal = X_original[orig_idx, channel, :]
         aug_signal  = X_augmented[len(X_original) + aug_idx, channel, :]
+
         axes[cls, 0].plot(t, orig_signal, color='steelblue', linewidth=0.8)
         axes[cls, 0].set_title(f'{class_names[cls]} — Original')
         axes[cls, 0].set_ylabel('Amplitude (z-scored)')
+
         axes[cls, 1].plot(t, aug_signal, color='darkorange', linewidth=0.8)
         axes[cls, 1].set_title(f'{class_names[cls]} — S&R Augmented')
 
-        #marking the segment boundary
+        # Mark the segment boundary
         for ax in axes[cls]:
             ax.axvline(x=2.0, color='red', linestyle='--',
                       alpha=0.5, label='Segment boundary')
@@ -105,56 +158,74 @@ def plot_augmentation_comparison(X_original, X_augmented, y, subject_id,
 
 ###########################################################
 
-#get ERD per channel per class per subject
 def compute_erd(npz_data, fs=250, rest_duration=2, imagery_duration=4):
-    s = npz_data['s'][:, :22].astype(np.float64)
+    """
+    Compute ERD% per channel per class for one subject.
+
+    ERD% = (power_imagery - power_rest) / power_rest * 100
+    Negative = desynchronization (expected motor imagery response)
+
+    Uses the 2s rest window before each cue onset (event 768 -> event 769/770/771/772)
+    at original 250 Hz (no resampling needed for spectral analysis)
+    """
+    s    = npz_data['s'][:, :22].astype(np.float64)  # (M, 22)
     epos = npz_data['epos'].flatten().astype(int)
     etyp = npz_data['etyp'].flatten().astype(int)
-    rest_samples = int(rest_duration * fs)   
-    imagery_samples = int(imagery_duration * fs)
+
+    rest_samples    = int(rest_duration * fs)     # 500 samples
+    imagery_samples = int(imagery_duration * fs)  # 1000 samples
+
     results = {}
     code_to_class = {769: 'left', 770: 'right', 771: 'feet', 772: 'tongue'}
 
     for code, cls_name in code_to_class.items():
         cue_positions = epos[etyp == code]
+
         rest_psds    = []
         imagery_psds = []
 
         for cue_pos in cue_positions:
-            rest_start = cue_pos - rest_samples
+            rest_start    = cue_pos - rest_samples
             imagery_start = cue_pos
+
             if rest_start < 0:
                 continue
 
-            rest_epoch = s[rest_start:rest_start + rest_samples, :].T 
-            imagery_epoch = s[imagery_start:imagery_start + imagery_samples, :].T
+            rest_epoch    = s[rest_start:rest_start + rest_samples, :].T      # (22, 500)
+            imagery_epoch = s[imagery_start:imagery_start + imagery_samples, :].T  # (22, 1000)
 
-            #calculate power in mu and beta bands
+            # Compute power in mu and beta bands
             f_rest, p_rest = welch(rest_epoch, fs=fs, nperseg=fs, axis=-1)
-            f_img, p_img = welch(imagery_epoch, fs=fs, nperseg=fs, axis=-1)
+            f_img,  p_img  = welch(imagery_epoch, fs=fs, nperseg=fs, axis=-1)
+
             rest_psds.append(p_rest)
             imagery_psds.append(p_img)
 
-        rest_mean = np.mean(rest_psds, axis=0) 
-        imagery_mean = np.mean(imagery_psds, axis=0)
+        rest_mean    = np.mean(rest_psds, axis=0)     # (22, F)
+        imagery_mean = np.mean(imagery_psds, axis=0)  # (22, F)
+
         results[cls_name] = {
             'freqs': f_rest,
             'rest_psd': rest_mean,
             'imagery_psd': imagery_mean,
-            'erd': (imagery_mean - rest_mean) / rest_mean * 100
+            'erd': (imagery_mean - rest_mean) / rest_mean * 100  # ERD%
         }
 
     return results
 
-#calculate mean ERD% within frequency band
+
 def compute_band_erd(erd_result, band=(8, 12)):
+    """Extract mean ERD% within a frequency band. Returns (22,) array."""
     freqs = erd_result['freqs']
     mask  = (freqs >= band[0]) & (freqs <= band[1])
     return erd_result['erd'][:, mask].mean(axis=1)  # (22,)
 
 ###################################################################################################
 
-#calculates erd by class
+high_subjects = [1, 3, 7, 8, 9]
+low_subjects  = [2, 4, 5, 6]
+
+
 def get_group_erd_topo(subject_list, subjectData, band=(8, 12)):
     group_erd = []
     for idx in subject_list:
@@ -164,7 +235,7 @@ def get_group_erd_topo(subject_list, subjectData, band=(8, 12)):
         group_erd.append(subj_erd)
     return np.mean(group_erd, axis=0)  # (22,)
 
-#plots the erd difference between high and low performers
+
 def plot_erd_comparison(high_erd_mu, low_erd_mu, high_erd_beta, low_erd_beta):
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle('ERD% at C3: High vs Low Performers\n'
@@ -200,7 +271,7 @@ def plot_erd_comparison(high_erd_mu, low_erd_mu, high_erd_beta, low_erd_beta):
     plt.savefig('/content/erd_comparison.png', dpi=150, bbox_inches='tight')
     plt.show()
 
-#shows the topomap for high and low performers and the difference between them
+
 def plot_topomap_erd(high_erd_topo, low_erd_topo):
     ch_names = ['Fz', 'FC3', 'FC1', 'FCz', 'FC2', 'FC4',
                 'C5', 'C3', 'C1', 'Cz', 'C2', 'C4', 'C6',
@@ -209,6 +280,7 @@ def plot_topomap_erd(high_erd_topo, low_erd_topo):
 
     info = mne.create_info(ch_names=ch_names, sfreq=128, ch_types='eeg')
     info.set_montage('standard_1020')
+
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     fig.suptitle('Mu+Beta Band ERD% Topography (8–30 Hz)\n'
                  'During Motor Imagery (Negative = Desynchronization)',
@@ -216,6 +288,7 @@ def plot_topomap_erd(high_erd_topo, low_erd_topo):
 
     vmin = min(high_erd_topo.min(), low_erd_topo.min())
     vmax = max(high_erd_topo.max(), low_erd_topo.max())
+
     mne.viz.plot_topomap(high_erd_topo, info, axes=axes[0],
                          show=False, vlim=(vmin, vmax), cmap='RdBu_r')
     axes[0].set_title('High Performers')
@@ -230,10 +303,11 @@ def plot_topomap_erd(high_erd_topo, low_erd_topo):
     plt.savefig('/content/erd_topomap.png', dpi=150, bbox_inches='tight')
     plt.show()
 
-#returns quantitative stats for mu and beta for high vs low performers
+
 def run_erd_analysis(subjectData):
     high_erd_mu,  high_erd_beta = [], []
     low_erd_mu,   low_erd_beta  = [], []
+
     for idx in high_subjects:
         erd = compute_erd(subjectData[f'subject{idx:02d}'])
         high_erd_mu.append(np.mean([compute_band_erd(erd[cls], (8, 12))[7]
@@ -266,11 +340,12 @@ def run_erd_analysis(subjectData):
         f.writelines(lines)
 
     plot_erd_comparison(high_erd_mu, low_erd_mu, high_erd_beta, low_erd_beta)
+
     high_erd_topo = get_group_erd_topo(high_subjects, subjectData, band=(8, 30))
-    low_erd_topo = get_group_erd_topo(low_subjects,  subjectData, band=(8, 30))
+    low_erd_topo  = get_group_erd_topo(low_subjects,  subjectData, band=(8, 30))
     plot_topomap_erd(high_erd_topo, low_erd_topo)
 
-#creates visual of the accuracy drop/increase per ablation per target sub
+
 def run_ablation_plot(ablation_results, baseline_ssl_aug):
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle('BYOL Ablation: Accuracy Drop When Each Subject Removed\n'
@@ -285,6 +360,7 @@ def run_ablation_plot(ablation_results, baseline_ssl_aug):
                   for s in other_subjects]
         labels = [f'S{s:02d}\n({"H" if s in high_subjects else "L"})'
                   for s in other_subjects]
+
         bars = ax.bar(labels, drops, color=colors, edgecolor='black', linewidth=0.5)
         ax.axhline(y=0, color='black', linestyle='--', linewidth=0.8)
         ax.set_title(f'Target: Subject {target_idx:02d} — '
@@ -307,7 +383,7 @@ def run_ablation_plot(ablation_results, baseline_ssl_aug):
     plt.savefig('/content/byol_ablation.png', dpi=150, bbox_inches='tight')
     plt.show()
 
-#full run for comparing the augmented vs not augmented signals
+
 def run_augmentation_visualization(subjectData, subjectDataEVAL, DATA_DIR):
     os.makedirs('/content/signal_dif_sr_augmentation', exist_ok=True)
 

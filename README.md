@@ -1,67 +1,72 @@
-# EEG Motor Imagery Classification — CMSC 678 Project
+# CMSC 678 Final Project — BCI Motor Imagery Classification
 
-Benchmarking traditional and deep learning approaches for EEG-based motor imagery classification on the BCI Competition IV Dataset 2a. Models are evaluated with and without self-supervised augmentation (BYOL).
+4-class EEG motor imagery classification on BCI Competition IV Dataset 2a. We compare FBCSP, EEGNet, ATCNet, MI-Mamba, and BYOL-pretrained EEGNet with and without S&R augmentation, with a focus on whether different approaches help BCI-inefficient users (low performers).
 
-## Models
+---
 
-| Model | Type |
-|---|---|
-| FBCSP | Traditional (Filter Bank CSP) |
-| EEGNet | Compact CNN for EEG |
-| ATCNet | Attention Temporal Convolutional Network |
-| Mamba | State Space Model |
-| SSL-BYOL | Self-Supervised Learning (Bootstrap Your Own Latent) |
+## Files needed
 
-## Requirements
+All of these need to be in the same folder as `driver.ipynb` (or on `sys.path`):
 
-- GPU access required (tested on Google Colab A100)
-- Python 3.x
+| File | What it does |
+|------|-------------|
+| `utils.py` | Data loading and preprocessing |
+| `normal_results.py` | Runs all model training conditions |
+| `EEGNet.py` | EEGNet model |
+| `ATCNet.py` | ATCNet model |
+| `Mamba.py` | MI-Mamba model |
+| `FBCSP_Multiclass.py` | FBCSP pipeline |
+| `EEGNetBYOL.py` | BYOL pretraining and finetuning |
+| `ablation.py` | Leave-one-out BYOL ablation |
+| `sr_augmentation.py` | S&R data augmentation |
+| `plot.py` | All plotting functions |
+| `requirements.txt` | Python dependencies |
 
-## Setup
+---
 
-### 1. Get the data
+## Data files
 
-Download the dataset from Google Drive and place it in `/content/`:
+You need 27 files in a single folder (`DATA_DIR`):
 
-[BCI Competition IV Dataset 2a](https://drive.google.com/drive/folders/15tBQjr5Rcl8dZMTU2jONHxQoII2xrbPx?usp=sharing)
+- **18 signal files** — `A01T.npz` through `A09T.npz` (training) and `A01E.npz` through `A09E.npz` (eval)
+- **9 label files** — `A01E.mat` through `A09E.mat` (true eval labels)
 
-### 2. Clone the repo in Google Colab
+**Shortcut (no download needed):** The data folder is shared at [temporary link]. Open it, click **Add shortcut to My Drive**, then point `DATA_DIR` in cell 2 to wherever you placed the shortcut. You can skip the download cell entirely.
 
-```python
-!git clone <your-repo-url>
-%cd CMSC678Project
+If you don't have access to the shared folder, cell 3 of the notebook (Download data) will download everything automatically from the public sources.
+
+---
+
+## How to run
+
+1. Open `driver.ipynb` in Google Colab
+2. In **cell 2**, set `HOME_FOLDER` to your project directory on Drive (where all the `.py` files live) and set `DATA_DIR` to the folder containing the 27 data files
+3. Run all cells top to bottom
+4. Each experiment saves its results to a pickle file in `HOME_FOLDER/results/` — if you stop and come back, re-running a cell will load from cache instead of retraining
+
+GPU is required for experiments 2–10. A100 recommended, T4 works but is slower.
+
+**Rough runtimes on A100:**
+- Experiments 1–7 (FBCSP + supervised models): ~2–3 hours total
+- Experiments 8–9 (BYOL pretrain + finetune): ~30–60 min each
+- Experiment 10 (ablation, 32 runs): several hours — checkpointed, safe to interrupt and resume
+
+---
+
+## Dependencies
+
+```
+torch
+numpy
+scipy
+scikit-learn
+matplotlib
+mne
+mamba-ssm
 ```
 
-### 3. Install dependencies
-
-```python
-!pip install -r requirements.txt
-!pip install mamba-ssm --no-build-isolation
+Install with:
+```bash
+pip install -r requirements.txt
+pip install mamba-ssm --no-build-isolation
 ```
-
-> `mamba-ssm` must be installed separately due to custom CUDA build requirements.
-
-## Running
-
-```python
-!python MAIN_RUN.py
-```
-
-This will:
-- Train and evaluate all models (with and without augmentation)
-- Run the ablation study
-- Generate confusion matrices, ERD plots, and augmentation visualizations
-- Save all results to `/content/drive/MyDrive/BCI/results/`
-
-## Output Files
-
-| File | Description |
-|---|---|
-| `ALL_MODEL_RESULTS.txt` | Per-subject and mean accuracy for each model |
-| `ABLATION_RESULTS.txt` | Ablation study results |
-| `ERD_RESULTS.txt` | Event-related desynchronization analysis |
-| `confusion_matrices.png` | Confusion matrices (no augmentation) |
-| `confusion_matrices_aug.png` | Confusion matrices (with augmentation) |
-| `erd_comparison.png` | ERD comparison plot |
-| `byol_ablation.png` | BYOL ablation study plot |
-| `signal_dif_sr_augmentation/` | Augmentation visualization samples |
